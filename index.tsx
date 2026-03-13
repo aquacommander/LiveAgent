@@ -19,15 +19,15 @@ export class GdmLiveAudio extends LitElement {
   @state() isRecording = false;
   @state() status = 'Booting...';
   @state() error = '';
-  @state() showBackground = true;
-  @state() showRings = true;
-  @state() useDynamicColors = true;
-  @state() useSmoothAnimations = true;
+  @state() showBackground = false;
+  @state() showRings = false;
+  @state() useDynamicColors = false;
+  @state() useSmoothAnimations = false;
   @state() showSettings = false;
   @state() isConnected = false;
   @state() isSessionReady = false;
   @state() cameraEnabled = false;
-  @state() autoSendVision = true;
+  @state() autoSendVision = false;
   @state() lastModelText = '';
 
   private readonly inputAudioContext = new (window.AudioContext ||
@@ -183,6 +183,13 @@ export class GdmLiveAudio extends LitElement {
         letter-spacing: 1px;
         color: rgba(255, 255, 255, 0.4);
         margin-bottom: 5px;
+      }
+
+      .settings-backdrop {
+        position: absolute;
+        inset: 0;
+        z-index: 95;
+        background: transparent;
       }
 
       .camera-preview-shell {
@@ -458,6 +465,15 @@ export class GdmLiveAudio extends LitElement {
   render() {
     return html`
       <div>
+        ${this.showSettings
+          ? html`<div
+              class="settings-backdrop"
+              @click=${() => {
+                this.showSettings = false;
+              }}
+            ></div>`
+          : ''}
+
         <div class="camera-preview-shell" data-active=${String(this.cameraEnabled)}>
           <video
             id="cameraPreview"
