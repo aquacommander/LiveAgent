@@ -195,6 +195,10 @@ wss.on('connection', (socket) => {
               });
             }
             send(socket, {
+              type: 'story_quality_report',
+              payload: { report: story.qualityReport },
+            });
+            send(socket, {
               type: 'story_generation_done',
               payload: { summary: story.summary },
             });

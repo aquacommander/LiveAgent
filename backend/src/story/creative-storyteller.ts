@@ -1,6 +1,11 @@
 import { GoogleGenAI } from '@google/genai';
-import type { RequirementProfile, StoryPart } from '../protocol.js';
+import type {
+  RequirementProfile,
+  StoryPart,
+  StoryQualityReport,
+} from '../protocol.js';
 import { config } from '../config.js';
+import { runStoryQualityGate } from './quality-gate.js';
 
 type RenderStatusEmitter = (
   sceneId: string,
@@ -161,7 +166,7 @@ export async function generateCreativeStoryParts(
   requirementProfile: RequirementProfile,
   userRequest: string,
   options: StoryGenerationOptions = {},
-): Promise<{ parts: StoryPart[]; summary: string }> {
+): Promise<{ parts: StoryPart[]; summary: string; qualityReport: StoryQualityReport }> {
   const prompt = `
 You are a Creative Storyteller. Generate interleaved multimodal story output.
 Return strict JSON only with this shape:
@@ -240,7 +245,7 @@ Rules:
     'hashtags',
   ]);
 
-  const parts: StoryPart[] = (parsed.parts ?? [])
+  const initialParts: StoryPart[] = (parsed.parts ?? [])
     .filter((part) => typeof part.content === 'string' && !!part.content?.trim())
     .map((part, index) => ({
       sequence: index + 1,
@@ -249,6 +254,13 @@ Rules:
       content: part.content ?? '',
       mediaType: part.kind === 'voiceover' ? 'audio' : 'text',
     }));
+
+  const qualityGate = await runStoryQualityGate(
+    ai,
+    requirementProfile,
+    initialParts,
+  );
+  const parts = qualityGate.parts;
 
   for (const part of parts) {
     if (part.kind === 'voiceover') {
@@ -327,5 +339,6 @@ Rules:
   return {
     parts,
     summary: parsed.summary ?? 'Story generation complete.',
+    qualityReport: qualityGate.report,
   };
 }

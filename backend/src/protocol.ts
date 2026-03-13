@@ -62,6 +62,20 @@ export type StoryPart = {
 };
 
 export type StoryRenderStatus = 'queued' | 'rendering' | 'ready' | 'failed';
+export type StoryQualityStatus = 'passed' | 'revised' | 'failed';
+
+export type StoryQualityFinding = {
+  sceneId: string;
+  score: number;
+  status: StoryQualityStatus;
+  issues: string[];
+  revisedKinds: string[];
+};
+
+export type StoryQualityReport = {
+  overallScore: number;
+  findings: StoryQualityFinding[];
+};
 
 export type ServerToClientMessage =
   | {
@@ -133,5 +147,11 @@ export type ServerToClientMessage =
         sceneId: string;
         status: StoryRenderStatus;
         message: string;
+      };
+    }
+  | {
+      type: 'story_quality_report';
+      payload: {
+        report: StoryQualityReport;
       };
     };

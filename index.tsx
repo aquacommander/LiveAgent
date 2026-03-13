@@ -15,6 +15,7 @@ import type {
   RequirementProfile,
   ServerToClientMessage,
   StoryPart,
+  StoryQualityReport,
 } from './types/live-protocol';
 import { VisionCapture } from './vision/vision-capture';
 import './visual-3d';
@@ -42,6 +43,7 @@ export class GdmLiveAudio extends LitElement {
   @state() showIntelligencePanel = true;
   @state() speakingStoryPartKey = '';
   @state() storyRenderStatusByScene: Record<string, { status: string; message: string }> = {};
+  @state() storyQualityReport: StoryQualityReport | null = null;
   private storyVoiceAudioElement: HTMLAudioElement | null = null;
   private storyVoiceObjectUrl: string | null = null;
 
@@ -445,6 +447,31 @@ export class GdmLiveAudio extends LitElement {
         color: rgba(255, 206, 206, 0.95);
       }
 
+      .story-quality-badge {
+        margin-top: 6px;
+        display: inline-flex;
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        border: 1px solid rgba(120, 164, 247, 0.35);
+        color: rgba(212, 230, 255, 0.95);
+      }
+
+      .story-quality-badge[data-state='passed'] {
+        border-color: rgba(100, 214, 170, 0.55);
+        color: rgba(184, 255, 230, 0.95);
+      }
+
+      .story-quality-badge[data-state='revised'] {
+        border-color: rgba(255, 196, 104, 0.55);
+        color: rgba(255, 232, 184, 0.95);
+      }
+
+      .story-quality-badge[data-state='failed'] {
+        border-color: rgba(255, 132, 132, 0.55);
+        color: rgba(255, 206, 206, 0.95);
+      }
+
       .story-content {
         margin-top: 6px;
         font-size: 13px;
@@ -491,6 +518,12 @@ export class GdmLiveAudio extends LitElement {
         margin-top: 10px;
         font-size: 12px;
         color: rgba(195, 220, 255, 0.85);
+      }
+
+      .quality-summary {
+        margin-top: 10px;
+        font-size: 12px;
+        color: rgba(183, 228, 255, 0.88);
       }
 
       .intelligence-toggle-button[data-active='true'] {
@@ -851,6 +884,11 @@ export class GdmLiveAudio extends LitElement {
       return;
     }
 
+    if (message.type === 'story_quality_report') {
+      this.storyQualityReport = message.payload.report;
+      return;
+    }
+
     if (message.type === 'story_render_status') {
       this.storyRenderStatusByScene = {
         ...this.storyRenderStatusByScene,
@@ -1010,6 +1048,12 @@ export class GdmLiveAudio extends LitElement {
     return `${part.sceneId}-${part.sequence}-${part.kind}`;
   }
 
+  private getSceneQualityFinding(sceneId: string) {
+    return this.storyQualityReport?.findings.find(
+      (finding) => finding.sceneId === sceneId,
+    );
+  }
+
   private base64ToBlob(base64: string, mimeType: string): Blob {
     const binary = atob(base64);
     const length = binary.length;
@@ -1109,6 +1153,7 @@ export class GdmLiveAudio extends LitElement {
     this.storyParts = [];
     this.storySummary = '';
     this.storyRenderStatusByScene = {};
+    this.storyQualityReport = null;
     this.connectLive();
     this.updateStatus('Session reset.');
   }
@@ -1256,6 +1301,21 @@ export class GdmLiveAudio extends LitElement {
                       </div>
                     `
                   : ''}
+                ${(() => {
+                  const qualityFinding = this.getSceneQualityFinding(part.sceneId);
+                  if (!qualityFinding) {
+                    return '';
+                  }
+                  return html`
+                    <div
+                      class="story-quality-badge"
+                      data-state=${qualityFinding.status}
+                    >
+                      Quality: ${qualityFinding.status}
+                      (${Math.round(qualityFinding.score * 100)}%)
+                    </div>
+                  `;
+                })()}
                 <div class="story-content">${part.content}</div>
                 ${part.mediaType === 'audio'
                   ? html`
@@ -1299,6 +1359,13 @@ export class GdmLiveAudio extends LitElement {
               </div>
             `,
           )}
+          ${this.storyQualityReport
+            ? html`
+                <div class="quality-summary">
+                  Quality Score: ${Math.round(this.storyQualityReport.overallScore * 100)}%
+                </div>
+              `
+            : ''}
           ${this.storySummary
             ? html`<div class="summary-text">${this.storySummary}</div>`
             : ''}
