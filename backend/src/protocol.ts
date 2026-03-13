@@ -77,6 +77,28 @@ export type StoryQualityReport = {
   findings: StoryQualityFinding[];
 };
 
+export type StoryOutputPackFormat = 'storybook' | 'marketing' | 'social';
+
+export type StoryOutputPack = {
+  format: StoryOutputPackFormat;
+  title: string;
+  content: string;
+};
+
+export type StorySafetyIssue = {
+  sceneId: string;
+  severity: 'low' | 'medium' | 'high';
+  category: 'violence' | 'sexual' | 'hate' | 'self_harm' | 'illegal' | 'policy' | 'sensitive';
+  reason: string;
+  blockedKinds: StoryPartKind[];
+};
+
+export type StorySafetyReport = {
+  status: 'safe' | 'review' | 'blocked';
+  issues: StorySafetyIssue[];
+  reviewedAt: string;
+};
+
 export type ServerToClientMessage =
   | {
       type: 'status';
@@ -153,5 +175,25 @@ export type ServerToClientMessage =
       type: 'story_quality_report';
       payload: {
         report: StoryQualityReport;
+      };
+    }
+  | {
+      type: 'story_scene_revised';
+      payload: {
+        sceneId: string;
+        reason: string;
+        parts: StoryPart[];
+      };
+    }
+  | {
+      type: 'story_output_packs';
+      payload: {
+        packs: StoryOutputPack[];
+      };
+    }
+  | {
+      type: 'story_safety_report';
+      payload: {
+        report: StorySafetyReport;
       };
     };

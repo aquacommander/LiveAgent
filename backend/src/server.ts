@@ -14,12 +14,19 @@ import type {
   ClientToServerMessage,
   RequirementProfile,
   ServerToClientMessage,
+  StoryPart,
 } from './protocol.js';
 import {
   analyzeRequirements,
   shouldEnterStoryMode,
 } from './agent/requirement-analyzer.js';
-import { generateCreativeStoryParts } from './story/creative-storyteller.js';
+import {
+  generateCreativeStoryParts,
+  reviseCreativeStoryScenes,
+} from './story/creative-storyteller.js';
+import { buildStoryOutputPacks } from './story/output-packs.js';
+import { applySafetyGuardrails, runStorySafetyChecks } from './story/safety-check.js';
+import { emitStoryTelemetry } from './telemetry/story-telemetry.js';
 import { randomUUID } from 'node:crypto';
 
 const mediaStore = new Map<
@@ -129,19 +136,243 @@ wss.on('connection', (socket) => {
   const client = new GoogleGenAI({ apiKey: config.geminiApiKey });
   let session: Session | null = null;
   let requirementProfile: RequirementProfile | null = null;
+  let previousRequirementProfile: RequirementProfile | null = null;
+  let latestStoryParts: StoryPart[] = [];
   let agentMode: AgentMode = 'conversation';
   let lastAnalyzedUserText = '';
   let isStoryGenerationRunning = false;
+  let queuedRequirementUpdate: string | null = null;
   let isSessionStarting = false;
   let isSessionReady = false;
   const pendingInputs: Array<
     Extract<ClientToServerMessage, { type: 'input_audio' | 'input_image' | 'input_text' }>
   > = [];
 
+  const inferAffectedSceneIds = (text: string, parts: StoryPart[]): string[] => {
+    const sceneIds = Array.from(new Set(parts.map((part) => part.sceneId))).sort();
+    if (sceneIds.length === 0) {
+      return [];
+    }
+
+    const normalized = text.toLowerCase();
+    const explicitSceneMatch = normalized.match(/scene\s*(\d+)/i);
+    if (explicitSceneMatch) {
+      const target = `scene-${explicitSceneMatch[1]}`;
+      if (sceneIds.includes(target)) {
+        return [target];
+      }
+    }
+
+    if (/\b(first|opening|intro|beginning)\b/i.test(normalized)) {
+      return [sceneIds[0]];
+    }
+    if (/\b(last|ending|final|conclusion)\b/i.test(normalized)) {
+      return [sceneIds[sceneIds.length - 1]];
+    }
+    if (/\b(tone|style|audience|overall|entire|whole|all scenes)\b/i.test(normalized)) {
+      return sceneIds;
+    }
+
+    return [sceneIds[sceneIds.length - 1]];
+  };
+
+  const applyRevisedScenes = (currentParts: StoryPart[], revisedParts: StoryPart[]) => {
+    const revisedScenes = new Set(revisedParts.map((part) => part.sceneId));
+    const preserved = currentParts.filter((part) => !revisedScenes.has(part.sceneId));
+    return [...preserved, ...revisedParts].sort((a, b) => a.sequence - b.sequence);
+  };
+
+  const runStoryGeneration = async (
+    text: string,
+    mode: 'initial' | 'revision',
+    targetSceneIds: string[] = [],
+  ): Promise<void> => {
+    if (!requirementProfile) {
+      return;
+    }
+    isStoryGenerationRunning = true;
+    emitStoryTelemetry('generation_started', {
+      mode,
+      targetSceneIds,
+      hasPreviousStory: latestStoryParts.length > 0,
+    });
+    try {
+      if (mode === 'revision' && latestStoryParts.length > 0) {
+        const revision = await reviseCreativeStoryScenes(
+          client,
+          requirementProfile,
+          text,
+          latestStoryParts,
+          targetSceneIds,
+          {
+            persistVideo: async (bytes, mimeType) => {
+              cleanupMediaStore();
+              return persistMedia(bytes, mimeType);
+            },
+            emitRenderStatus: (sceneId, status, message) => {
+              send(socket, {
+                type: 'story_render_status',
+                payload: { sceneId, status, message },
+              });
+            },
+          },
+        );
+
+        const normalizedRevisedParts = revision.revisedParts.map((part) =>
+          part.url && part.url.startsWith('/')
+            ? { ...part, url: `http://localhost:${config.port}${part.url}` }
+            : part,
+        );
+        const mergedParts = applyRevisedScenes(latestStoryParts, normalizedRevisedParts);
+        const safetyReport = runStorySafetyChecks(requirementProfile, mergedParts);
+        latestStoryParts = applySafetyGuardrails(mergedParts, safetyReport);
+
+        for (const sceneId of new Set(latestStoryParts.map((part) => part.sceneId))) {
+          send(socket, {
+            type: 'story_scene_revised',
+            payload: {
+              sceneId,
+              reason: 'User updated requirements during storytelling.',
+              parts: latestStoryParts.filter((part) => part.sceneId === sceneId),
+            },
+          });
+        }
+        send(socket, {
+          type: 'story_quality_report',
+          payload: { report: revision.qualityReport },
+        });
+        send(socket, {
+          type: 'story_safety_report',
+          payload: { report: safetyReport },
+        });
+        if (safetyReport.status !== 'safe') {
+          emitStoryTelemetry('safety_flagged', {
+            mode: 'revision',
+            status: safetyReport.status,
+            issueCount: safetyReport.issues.length,
+          });
+        }
+        send(socket, {
+          type: 'story_output_packs',
+          payload: {
+            packs: buildStoryOutputPacks(
+              requirementProfile,
+              latestStoryParts,
+              'Scene revision applied.',
+            ),
+          },
+        });
+        send(socket, {
+          type: 'story_generation_done',
+          payload: { summary: 'Scene revision applied.' },
+        });
+        emitStoryTelemetry('generation_completed', {
+          mode: 'revision',
+          safetyStatus: safetyReport.status,
+          issueCount: safetyReport.issues.length,
+          partCount: latestStoryParts.length,
+        });
+        return;
+      }
+
+      const story = await generateCreativeStoryParts(client, requirementProfile, text, {
+        persistVideo: async (bytes, mimeType) => {
+          cleanupMediaStore();
+          return persistMedia(bytes, mimeType);
+        },
+        emitRenderStatus: (sceneId, status, message) => {
+          send(socket, {
+            type: 'story_render_status',
+            payload: {
+              sceneId,
+              status,
+              message,
+            },
+          });
+        },
+      });
+
+      const normalizedGeneratedParts = story.parts.map((part) =>
+        part.url && part.url.startsWith('/')
+          ? { ...part, url: `http://localhost:${config.port}${part.url}` }
+          : part,
+      );
+      const safetyReport = runStorySafetyChecks(
+        requirementProfile,
+        normalizedGeneratedParts,
+      );
+      latestStoryParts = applySafetyGuardrails(normalizedGeneratedParts, safetyReport);
+      for (const part of latestStoryParts) {
+        send(socket, {
+          type: 'story_part',
+          payload: part,
+        });
+      }
+      send(socket, {
+        type: 'story_quality_report',
+        payload: { report: story.qualityReport },
+      });
+      send(socket, {
+        type: 'story_safety_report',
+        payload: { report: safetyReport },
+      });
+      if (safetyReport.status !== 'safe') {
+        emitStoryTelemetry('safety_flagged', {
+          mode: 'initial',
+          status: safetyReport.status,
+          issueCount: safetyReport.issues.length,
+        });
+      }
+      send(socket, {
+        type: 'story_output_packs',
+        payload: {
+          packs: buildStoryOutputPacks(
+            requirementProfile,
+            latestStoryParts,
+            story.summary,
+          ),
+        },
+      });
+      send(socket, {
+        type: 'story_generation_done',
+        payload: { summary: story.summary },
+      });
+      emitStoryTelemetry('generation_completed', {
+        mode: 'initial',
+        safetyStatus: safetyReport.status,
+        issueCount: safetyReport.issues.length,
+        partCount: latestStoryParts.length,
+      });
+    } catch (error) {
+      emitStoryTelemetry('generation_failed', {
+        mode,
+        message:
+          error instanceof Error ? error.message : 'Creative storyteller generation failed.',
+      });
+      send(socket, {
+        type: 'error',
+        payload: {
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Creative storyteller generation failed.',
+        },
+      });
+    } finally {
+      isStoryGenerationRunning = false;
+      if (queuedRequirementUpdate) {
+        const queued = queuedRequirementUpdate;
+        queuedRequirementUpdate = null;
+        await processRequirementText(queued);
+      }
+    }
+  };
+
   const processRequirementText = async (text: string): Promise<void> => {
     const normalized = text.trim().toLowerCase();
     if (normalized && normalized !== lastAnalyzedUserText) {
       lastAnalyzedUserText = normalized;
+      previousRequirementProfile = requirementProfile;
       requirementProfile = analyzeRequirements(text, requirementProfile);
       send(socket, {
         type: 'requirement_profile_updated',
@@ -160,61 +391,36 @@ wss.on('connection', (socket) => {
           });
         }
 
-        if (!isStoryGenerationRunning) {
-          isStoryGenerationRunning = true;
-          try {
-            const story = await generateCreativeStoryParts(
-              client,
-              requirementProfile,
-              text,
-              {
-                persistVideo: async (bytes, mimeType) => {
-                  cleanupMediaStore();
-                  const relativePath = persistMedia(bytes, mimeType);
-                  return relativePath;
-                },
-                emitRenderStatus: (sceneId, status, message) => {
-                  send(socket, {
-                    type: 'story_render_status',
-                    payload: {
-                      sceneId,
-                      status,
-                      message,
-                    },
-                  });
-                },
-              },
-            );
-            for (const part of story.parts) {
-              if (part.url && part.url.startsWith('/')) {
-                part.url = `http://localhost:${config.port}${part.url}`;
-              }
-              send(socket, {
-                type: 'story_part',
-                payload: part,
-              });
-            }
-            send(socket, {
-              type: 'story_quality_report',
-              payload: { report: story.qualityReport },
-            });
-            send(socket, {
-              type: 'story_generation_done',
-              payload: { summary: story.summary },
-            });
-          } catch (error) {
-            send(socket, {
-              type: 'error',
-              payload: {
-                message:
-                  error instanceof Error
-                    ? error.message
-                    : 'Creative storyteller generation failed.',
-              },
-            });
-          } finally {
-            isStoryGenerationRunning = false;
-          }
+        if (isStoryGenerationRunning) {
+          queuedRequirementUpdate = text;
+          send(socket, {
+            type: 'status',
+            payload: {
+              message:
+                'Update captured. Applying scene revision after current generation.',
+            },
+          });
+          return;
+        }
+
+        const hasPreviousStory = latestStoryParts.length > 0;
+        const changedCoreFields =
+          !!previousRequirementProfile &&
+          (previousRequirementProfile.objective !== requirementProfile.objective ||
+            previousRequirementProfile.audience !== requirementProfile.audience ||
+            previousRequirementProfile.tone !== requirementProfile.tone ||
+            previousRequirementProfile.style !== requirementProfile.style ||
+            previousRequirementProfile.constraints.join('|') !==
+              requirementProfile.constraints.join('|'));
+        const userRequestedRevision = /\b(scene|revise|update|change|replace|ending|intro)\b/i.test(
+          text,
+        );
+
+        if (hasPreviousStory && (changedCoreFields || userRequestedRevision)) {
+          const affectedSceneIds = inferAffectedSceneIds(text, latestStoryParts);
+          await runStoryGeneration(text, 'revision', affectedSceneIds);
+        } else {
+          await runStoryGeneration(text, 'initial');
         }
       } else {
         if (agentMode !== 'conversation') {
@@ -302,12 +508,19 @@ wss.on('connection', (socket) => {
           session = null;
         }
         pendingInputs.length = 0;
+        latestStoryParts = [];
+        queuedRequirementUpdate = null;
+        previousRequirementProfile = null;
+        requirementProfile = null;
+        lastAnalyzedUserText = '';
+        agentMode = 'conversation';
         isSessionReady = false;
         isSessionStarting = true;
         send(socket, {
           type: 'status',
           payload: { message: 'Starting live session...' },
         });
+        emitStoryTelemetry('session_starting', { agentMode });
 
         const model = message.payload?.model ?? config.defaultModel;
         const voiceName = message.payload?.voiceName ?? config.defaultVoice;
@@ -435,10 +648,17 @@ wss.on('connection', (socket) => {
         isSessionReady = false;
         isSessionStarting = false;
         pendingInputs.length = 0;
+        latestStoryParts = [];
+        queuedRequirementUpdate = null;
+        previousRequirementProfile = null;
+        requirementProfile = null;
+        lastAnalyzedUserText = '';
+        agentMode = 'conversation';
         send(socket, {
           type: 'status',
           payload: { message: 'Session ended.' },
         });
+        emitStoryTelemetry('session_ended', { agentMode: 'conversation' });
       }
     } catch (error) {
       send(socket, {

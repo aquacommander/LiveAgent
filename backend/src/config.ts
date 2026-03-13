@@ -17,4 +17,5 @@ export const config = {
     process.env.GEMINI_MODEL ??
     'gemini-2.5-flash-native-audio-preview-09-2025',
   defaultVoice: process.env.GEMINI_VOICE ?? 'Orus',
+  enableTelemetry: process.env.STORY_TELEMETRY !== 'false',
 };

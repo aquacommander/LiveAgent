@@ -14,7 +14,9 @@ import type {
   AgentMode,
   RequirementProfile,
   ServerToClientMessage,
+  StoryOutputPack,
   StoryPart,
+  StorySafetyReport,
   StoryQualityReport,
 } from './types/live-protocol';
 import { VisionCapture } from './vision/vision-capture';
@@ -44,6 +46,8 @@ export class GdmLiveAudio extends LitElement {
   @state() speakingStoryPartKey = '';
   @state() storyRenderStatusByScene: Record<string, { status: string; message: string }> = {};
   @state() storyQualityReport: StoryQualityReport | null = null;
+  @state() storySafetyReport: StorySafetyReport | null = null;
+  @state() storyOutputPacks: StoryOutputPack[] = [];
   private storyVoiceAudioElement: HTMLAudioElement | null = null;
   private storyVoiceObjectUrl: string | null = null;
 
@@ -397,6 +401,15 @@ export class GdmLiveAudio extends LitElement {
         color: rgba(172, 197, 241, 0.9);
       }
 
+      .panel-empty-state {
+        margin-top: 10px;
+        border-radius: 10px;
+        border: 1px dashed rgba(134, 176, 247, 0.3);
+        padding: 10px;
+        color: rgba(194, 218, 255, 0.72);
+        font-size: 12px;
+      }
+
       .story-mode-chip {
         margin-top: 8px;
         display: inline-flex;
@@ -524,6 +537,45 @@ export class GdmLiveAudio extends LitElement {
         margin-top: 10px;
         font-size: 12px;
         color: rgba(183, 228, 255, 0.88);
+      }
+
+      .safety-summary {
+        margin-top: 8px;
+        font-size: 12px;
+        display: inline-flex;
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(128, 176, 255, 0.35);
+        color: rgba(214, 232, 255, 0.95);
+      }
+
+      .safety-summary[data-state='safe'] {
+        border-color: rgba(100, 214, 170, 0.55);
+        color: rgba(184, 255, 230, 0.95);
+      }
+
+      .safety-summary[data-state='review'] {
+        border-color: rgba(255, 196, 104, 0.55);
+        color: rgba(255, 232, 184, 0.95);
+      }
+
+      .safety-summary[data-state='blocked'] {
+        border-color: rgba(255, 132, 132, 0.55);
+        color: rgba(255, 206, 206, 0.95);
+      }
+
+      .output-pack-title {
+        margin-top: 8px;
+        font-size: 12px;
+        color: rgba(200, 226, 255, 0.92);
+      }
+
+      .output-pack-content {
+        margin-top: 6px;
+        white-space: pre-wrap;
+        font-size: 12px;
+        line-height: 1.45;
+        color: rgba(223, 238, 255, 0.9);
       }
 
       .intelligence-toggle-button[data-active='true'] {
@@ -859,6 +911,8 @@ export class GdmLiveAudio extends LitElement {
       this.updateStatus(message.payload.reason);
       if (this.agentMode === 'conversation') {
         this.storySummary = '';
+        this.storySafetyReport = null;
+        this.storyOutputPacks = [];
       }
       return;
     }
@@ -878,6 +932,16 @@ export class GdmLiveAudio extends LitElement {
       return;
     }
 
+    if (message.type === 'story_scene_revised') {
+      const revisedScene = message.payload.sceneId;
+      const preserved = this.storyParts.filter((part) => part.sceneId !== revisedScene);
+      this.storyParts = [...preserved, ...message.payload.parts].sort(
+        (a, b) => a.sequence - b.sequence,
+      );
+      this.updateStatus(`Updated ${revisedScene} with your latest request.`);
+      return;
+    }
+
     if (message.type === 'story_generation_done') {
       this.storySummary = message.payload.summary;
       this.updateStatus('Creative story generated.');
@@ -886,6 +950,16 @@ export class GdmLiveAudio extends LitElement {
 
     if (message.type === 'story_quality_report') {
       this.storyQualityReport = message.payload.report;
+      return;
+    }
+
+    if (message.type === 'story_safety_report') {
+      this.storySafetyReport = message.payload.report;
+      return;
+    }
+
+    if (message.type === 'story_output_packs') {
+      this.storyOutputPacks = message.payload.packs;
       return;
     }
 
@@ -917,6 +991,19 @@ export class GdmLiveAudio extends LitElement {
 
   private updateError(msg: string) {
     this.error = msg;
+  }
+
+  private async copyPackContent(pack: StoryOutputPack): Promise<void> {
+    if (!navigator?.clipboard?.writeText) {
+      this.updateError('Clipboard API is not available in this browser.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(pack.content);
+      this.updateStatus(`${pack.title} copied to clipboard.`);
+    } catch {
+      this.updateError(`Unable to copy ${pack.title}.`);
+    }
   }
 
   private async startRecording() {
@@ -1154,6 +1241,8 @@ export class GdmLiveAudio extends LitElement {
     this.storySummary = '';
     this.storyRenderStatusByScene = {};
     this.storyQualityReport = null;
+    this.storySafetyReport = null;
+    this.storyOutputPacks = [];
     this.connectLive();
     this.updateStatus('Session reset.');
   }
@@ -1287,6 +1376,15 @@ export class GdmLiveAudio extends LitElement {
                 </div>
               `
             : ''}
+          ${this.storyParts.length === 0 &&
+          !this.storySummary &&
+          !this.clarificationQuestion
+            ? html`
+                <div class="panel-empty-state">
+                  The intelligence stream will appear here after your first request.
+                </div>
+              `
+            : ''}
           ${this.storyParts.map(
             (part) => html`
               <div class="story-card">
@@ -1366,26 +1464,50 @@ export class GdmLiveAudio extends LitElement {
                 </div>
               `
             : ''}
+          ${this.storySafetyReport
+            ? html`
+                <div
+                  class="safety-summary"
+                  data-state=${this.storySafetyReport.status}
+                >
+                  Safety: ${this.storySafetyReport.status}
+                  (${this.storySafetyReport.issues.length} issues)
+                </div>
+                ${this.storySafetyReport.issues.slice(0, 3).map(
+                  (issue) => html`
+                    <div class="story-card">
+                      <div class="story-kind">
+                        ${issue.sceneId} · ${issue.category} · ${issue.severity}
+                      </div>
+                      <div class="story-content">${issue.reason}</div>
+                    </div>
+                  `,
+                )}
+              `
+            : ''}
           ${this.storySummary
             ? html`<div class="summary-text">${this.storySummary}</div>`
             : ''}
+          ${this.storyOutputPacks.map(
+            (pack) => html`
+              <div class="story-card">
+                <div class="story-kind">${pack.format} pack</div>
+                <div class="output-pack-title">${pack.title}</div>
+                <div class="output-pack-content">${pack.content}</div>
+                <div class="story-audio-controls">
+                  <button
+                    class="story-audio-button"
+                    @click=${() => this.copyPackContent(pack)}
+                  >
+                    Copy Pack
+                  </button>
+                </div>
+              </div>
+            `,
+          )}
         </div>
 
         <div class="controls">
-          <button
-            id="resetButton"
-            @click=${this.reset}
-            ?disabled=${this.isRecording}>
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              height="32px"
-              viewBox="0 -960 960 960"
-              width="32px"
-              fill="#ffffff">
-              <path
-                d="M480-160q-134 0-227-93t-93-227q0-134 93-227t227-93q69 0 132 28.5T720-690v-110h80v280H520v-80h168q-32-56-87.5-88T480-720q-100 0-170 70t-70 170q0 100 70 170t170 70q77 0 139-44t87-116h84q-28 106-114 173t-196 67Z" />
-            </svg>
-          </button>
           <button
             id="startButton"
             @click=${this.startRecording}
