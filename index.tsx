@@ -39,6 +39,10 @@ export class GdmLiveAudio extends LitElement {
   @state() clarificationQuestion = '';
   @state() storyParts: StoryPart[] = [];
   @state() storySummary = '';
+  @state() showIntelligencePanel = true;
+  @state() speakingStoryPartKey = '';
+  private storyVoiceAudioElement: HTMLAudioElement | null = null;
+  private storyVoiceObjectUrl: string | null = null;
 
   private readonly inputAudioContext = new (window.AudioContext ||
     (window as any).webkitAudioContext)({ sampleRate: 16000 });
@@ -356,11 +360,11 @@ export class GdmLiveAudio extends LitElement {
 
       .story-panel {
         position: absolute;
-        top: 92px;
+        top: 172px;
         right: 24px;
         z-index: 103;
-        width: min(420px, calc(100vw - 32px));
-        max-height: calc(100vh - 120px);
+        width: min(380px, calc(100vw - 34px));
+        height: min(575px, calc(100vh - 190px));
         overflow: auto;
         border-radius: 18px;
         background: rgba(5, 12, 30, 0.76);
@@ -368,6 +372,18 @@ export class GdmLiveAudio extends LitElement {
         box-shadow: 0 16px 40px rgba(0, 0, 0, 0.42);
         padding: 14px;
         backdrop-filter: blur(14px);
+        transition:
+          opacity 280ms ease,
+          transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+        transform-origin: right center;
+        opacity: 1;
+        transform: translateX(0) scale(1);
+      }
+
+      .story-panel[data-open='false'] {
+        opacity: 0;
+        transform: translateX(28px) scale(0.98);
+        pointer-events: none;
       }
 
       .story-panel h3 {
@@ -424,10 +440,36 @@ export class GdmLiveAudio extends LitElement {
         display: block;
       }
 
+      .story-audio-controls {
+        margin-top: 8px;
+        display: flex;
+        gap: 8px;
+      }
+
+      .story-audio-button {
+        border: 1px solid rgba(129, 177, 255, 0.35);
+        background: rgba(14, 30, 66, 0.88);
+        color: rgba(229, 240, 255, 0.96);
+        border-radius: 8px;
+        font-size: 12px;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+
+      .story-audio-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
       .summary-text {
         margin-top: 10px;
         font-size: 12px;
         color: rgba(195, 220, 255, 0.85);
+      }
+
+      .intelligence-toggle-button[data-active='true'] {
+        border-color: rgba(160, 218, 255, 0.75);
+        box-shadow: 0 0 16px rgba(98, 196, 255, 0.45);
       }
 
       .requirement-grid {
@@ -454,6 +496,168 @@ export class GdmLiveAudio extends LitElement {
         font-size: 12px;
         color: rgba(224, 236, 255, 0.92);
       }
+
+      @media (max-width: 1200px) {
+        .branding h1 {
+          font-size: 32px;
+        }
+
+        .branding p {
+          font-size: 16px;
+        }
+
+        .camera-preview-shell {
+          width: 320px;
+          height: 198px;
+        }
+
+        .story-panel {
+          width: min(340px, calc(100vw - 24px));
+          height: min(520px, calc(100vh - 180px));
+        }
+      }
+
+      @media (max-width: 900px) {
+        .branding {
+          top: 20px;
+          left: 18px;
+        }
+
+        .branding h1 {
+          font-size: 26px;
+        }
+
+        .branding p {
+          margin-top: 6px;
+          font-size: 13px;
+        }
+
+        .top-actions {
+          top: 14px;
+          right: 14px;
+          gap: 6px;
+          padding: 5px;
+        }
+
+        .top-action-button {
+          width: 40px;
+          height: 40px;
+          border-radius: 12px;
+        }
+
+        .top-action-button svg {
+          width: 20px;
+          height: 20px;
+        }
+
+        .camera-preview-shell {
+          top: 72px;
+          left: 14px;
+          width: 220px;
+          height: 136px;
+        }
+
+        .story-panel {
+          top: 72px;
+          right: 14px;
+          width: min(320px, calc(100vw - 20px));
+          height: min(460px, calc(100vh - 150px));
+          padding: 12px;
+        }
+
+        .controls {
+          bottom: 12vh;
+          gap: 14px;
+        }
+
+        .controls button {
+          width: 68px;
+          height: 68px;
+        }
+
+        .controls button svg {
+          width: 28px;
+          height: 28px;
+        }
+
+        #status {
+          bottom: 2.2vh;
+          font-size: 15px;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .branding {
+          top: 14px;
+          left: 12px;
+          max-width: 62vw;
+        }
+
+        .branding h1 {
+          font-size: 20px;
+          letter-spacing: 1px;
+        }
+
+        .branding p {
+          font-size: 11px;
+          line-height: 1.3;
+        }
+
+        .camera-preview-shell {
+          top: 62px;
+          left: 12px;
+          width: 42vw;
+          max-width: 176px;
+          height: 108px;
+        }
+
+        .story-panel {
+          top: 62px;
+          right: 12px;
+          width: 52vw;
+          min-width: 188px;
+          height: min(410px, calc(100vh - 145px));
+          border-radius: 14px;
+          padding: 10px;
+        }
+
+        .story-panel h3 {
+          font-size: 11px;
+          letter-spacing: 0.7px;
+        }
+
+        .story-mode-chip {
+          font-size: 10px;
+          padding: 4px 8px;
+        }
+
+        .story-content {
+          font-size: 12px;
+        }
+
+        .requirement-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .controls {
+          bottom: 11vh;
+        }
+
+        .controls button {
+          width: 60px;
+          height: 60px;
+        }
+
+        .controls button svg {
+          width: 24px;
+          height: 24px;
+        }
+
+        .status-text {
+          padding: 8px 14px;
+          font-size: 13px;
+        }
+      }
   `;
 
   connectedCallback(): void {
@@ -463,6 +667,7 @@ export class GdmLiveAudio extends LitElement {
   }
 
   disconnectedCallback(): void {
+    this.stopVoiceoverPlayback();
     this.stopRecording();
     this.stopVisionAutoSend();
     this.visionCapture.stop();
@@ -716,7 +921,95 @@ export class GdmLiveAudio extends LitElement {
     }
   }
 
+  private getStoryPartKey(part: StoryPart): string {
+    return `${part.sceneId}-${part.sequence}-${part.kind}`;
+  }
+
+  private base64ToBlob(base64: string, mimeType: string): Blob {
+    const binary = atob(base64);
+    const length = binary.length;
+    const bytes = new Uint8Array(length);
+    for (let i = 0; i < length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: mimeType });
+  }
+
+  private playVoiceoverPart(part: StoryPart): void {
+    this.stopVoiceoverPlayback();
+
+    if (part.data && part.mimeType && part.mimeType.startsWith('audio/')) {
+      try {
+        const blob = this.base64ToBlob(part.data, part.mimeType);
+        const objectUrl = URL.createObjectURL(blob);
+        const audio = new Audio(objectUrl);
+        audio.onended = () => {
+          this.speakingStoryPartKey = '';
+          if (this.storyVoiceObjectUrl) {
+            URL.revokeObjectURL(this.storyVoiceObjectUrl);
+            this.storyVoiceObjectUrl = null;
+          }
+          this.storyVoiceAudioElement = null;
+        };
+        audio.onerror = () => {
+          this.speakingStoryPartKey = '';
+          this.updateError('Failed to play generated voiceover audio.');
+          if (this.storyVoiceObjectUrl) {
+            URL.revokeObjectURL(this.storyVoiceObjectUrl);
+            this.storyVoiceObjectUrl = null;
+          }
+          this.storyVoiceAudioElement = null;
+        };
+
+        this.storyVoiceAudioElement = audio;
+        this.storyVoiceObjectUrl = objectUrl;
+        this.speakingStoryPartKey = this.getStoryPartKey(part);
+        void audio.play();
+        return;
+      } catch {
+        // Fallback below if blob playback fails.
+      }
+    }
+
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      this.updateError('Voiceover playback is not supported in this browser.');
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(part.content);
+    utterance.rate = 0.97;
+    utterance.pitch = 1.0;
+    utterance.onend = () => {
+      this.speakingStoryPartKey = '';
+    };
+    utterance.onerror = () => {
+      this.speakingStoryPartKey = '';
+      this.updateError('Failed to play voiceover audio.');
+    };
+
+    this.speakingStoryPartKey = this.getStoryPartKey(part);
+    window.speechSynthesis.speak(utterance);
+  }
+
+  private stopVoiceoverPlayback(): void {
+    if (this.storyVoiceAudioElement) {
+      this.storyVoiceAudioElement.pause();
+      this.storyVoiceAudioElement.currentTime = 0;
+      this.storyVoiceAudioElement = null;
+    }
+    if (this.storyVoiceObjectUrl) {
+      URL.revokeObjectURL(this.storyVoiceObjectUrl);
+      this.storyVoiceObjectUrl = null;
+    }
+
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    this.speakingStoryPartKey = '';
+  }
+
   private reset() {
+    this.stopVoiceoverPlayback();
     this.stopRecording();
     this.audioPlayback.resetQueue();
     if (this.isConnected) {
@@ -768,6 +1061,19 @@ export class GdmLiveAudio extends LitElement {
             data-active=${String(this.showSettings)}
             @click=${() => (this.showSettings = !this.showSettings)}>
             <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor"><path d="m370-80-16-128q-13-5-24.5-12T307-235l-119 50L78-375l103-78q-1-7-1-13.5t1-13.5l-103-78 110-190 119 50q11-8 23-15t24-12l16-128h220l16 128q13 5 24.5 12t22.5 15l119-50 110 190-103 78q1 7 1 13.5t-1 13.5l103 78-110 190-119-50q-11 8-23 15t-24 12L590-80H370Zm112-260q58 0 99-41t41-99q0-58-41-99t-99-41q-58 0-99 41t-41 99q0 58 41 99t99 41Z"/></svg>
+          </button>
+          <button
+            class="top-action-button intelligence-toggle-button"
+            title=${this.showIntelligencePanel
+              ? 'Hide Live Agent Intelligence'
+              : 'Show Live Agent Intelligence'}
+            data-active=${String(this.showIntelligencePanel)}
+            @click=${() => {
+              this.showIntelligencePanel = !this.showIntelligencePanel;
+            }}>
+            ${this.showIntelligencePanel
+              ? html`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor"><path d="M440-280 280-440l56-58 104 104 184-184 56 58-240 240Z"/></svg>`
+              : html`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor"><path d="M360-280v-400l280 200-280 200Z"/></svg>`}
           </button>
         </div>
 
@@ -827,7 +1133,7 @@ export class GdmLiveAudio extends LitElement {
           </div>
         ` : ''}
 
-        <div class="story-panel">
+        <div class="story-panel" data-open=${String(this.showIntelligencePanel)}>
           <h3>Live Agent Intelligence</h3>
           <div class="story-mode-chip">
             Mode: ${this.agentMode === 'creative_storyteller' ? 'Creative Storyteller' : 'Requirement Discovery'}
@@ -855,6 +1161,28 @@ export class GdmLiveAudio extends LitElement {
               <div class="story-card">
                 <div class="story-kind">${part.sceneId} · ${part.kind}</div>
                 <div class="story-content">${part.content}</div>
+                ${part.mediaType === 'audio'
+                  ? html`
+                      <div class="story-audio-controls">
+                        <button
+                          class="story-audio-button"
+                          @click=${() => this.playVoiceoverPart(part)}
+                          ?disabled=${this.speakingStoryPartKey === this.getStoryPartKey(part)}
+                        >
+                          ${this.speakingStoryPartKey === this.getStoryPartKey(part)
+                            ? 'Playing'
+                            : 'Play Voiceover'}
+                        </button>
+                        <button
+                          class="story-audio-button"
+                          @click=${this.stopVoiceoverPlayback}
+                          ?disabled=${this.speakingStoryPartKey !== this.getStoryPartKey(part)}
+                        >
+                          Stop
+                        </button>
+                      </div>
+                    `
+                  : ''}
                 ${part.mediaType === 'image' && part.data && part.mimeType
                   ? html`
                       <div class="story-media">

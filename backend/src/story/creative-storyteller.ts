@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import type { RequirementProfile, StoryPart } from '../protocol.js';
+import { config } from '../config.js';
 
 async function generateInlineImage(
   ai: GoogleGenAI,
@@ -24,6 +25,65 @@ async function generateInlineImage(
   } catch {
     return null;
   }
+}
+
+async function generateVoiceoverAudio(
+  ai: GoogleGenAI,
+  text: string,
+): Promise<{ data: string; mimeType: string } | null> {
+  // We attempt TTS with a dedicated audio-capable model first.
+  const attempts: Array<() => Promise<unknown>> = [
+    async () =>
+      (ai.models as any).generateContent({
+        model: 'gemini-2.5-flash-preview-tts',
+        contents: text,
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: config.defaultVoice },
+            },
+          },
+        },
+      }),
+    async () =>
+      (ai.models as any).generateContent({
+        model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+        contents: text,
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: config.defaultVoice },
+            },
+          },
+        },
+      }),
+  ];
+
+  for (const run of attempts) {
+    try {
+      const response = (await run()) as any;
+      const parts = response?.candidates?.[0]?.content?.parts ?? [];
+      for (const part of parts) {
+        const inline = part?.inlineData;
+        if (
+          inline?.data &&
+          typeof inline?.mimeType === 'string' &&
+          inline.mimeType.startsWith('audio/')
+        ) {
+          return {
+            data: inline.data,
+            mimeType: inline.mimeType,
+          };
+        }
+      }
+    } catch {
+      // Try next model attempt.
+    }
+  }
+
+  return null;
 }
 
 export async function generateCreativeStoryParts(
@@ -116,11 +176,19 @@ Rules:
       sceneId: part.sceneId ?? `scene-${Math.floor(index / 5) + 1}`,
       kind: safeKinds.has(part.kind ?? '') ? (part.kind as StoryPart['kind']) : 'narration',
       content: part.content ?? '',
-      mediaType: 'text',
+      mediaType: part.kind === 'voiceover' ? 'audio' : 'text',
     }));
 
   for (const part of parts) {
     if (part.kind !== 'image_prompt') {
+      if (part.kind === 'voiceover') {
+        const voiceoverAudio = await generateVoiceoverAudio(ai, part.content);
+        if (voiceoverAudio) {
+          part.mediaType = 'audio';
+          part.mimeType = voiceoverAudio.mimeType;
+          part.data = voiceoverAudio.data;
+        }
+      }
       continue;
     }
 
