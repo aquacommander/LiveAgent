@@ -2,6 +2,17 @@ import { GoogleGenAI } from '@google/genai';
 import type { RequirementProfile, StoryPart } from '../protocol.js';
 import { config } from '../config.js';
 
+type RenderStatusEmitter = (
+  sceneId: string,
+  status: 'queued' | 'rendering' | 'ready' | 'failed',
+  message: string,
+) => void;
+
+type StoryGenerationOptions = {
+  persistVideo?: (bytes: Uint8Array, mimeType: string) => Promise<string>;
+  emitRenderStatus?: RenderStatusEmitter;
+};
+
 async function generateInlineImage(
   ai: GoogleGenAI,
   prompt: string,
@@ -86,10 +97,70 @@ async function generateVoiceoverAudio(
   return null;
 }
 
+async function pollVideoOperation(
+  ai: GoogleGenAI,
+  operation: any,
+  maxWaitMs = 180000,
+): Promise<any> {
+  const startTime = Date.now();
+  let current = operation;
+
+  while (!current?.done) {
+    if (Date.now() - startTime > maxWaitMs) {
+      throw new Error('Video generation timed out.');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    current = await (ai.operations as any).getVideosOperation({ operation: current });
+  }
+
+  return current;
+}
+
+async function fetchVideoBytes(uri: string): Promise<Uint8Array> {
+  const url = new URL(uri);
+  url.searchParams.append('key', config.geminiApiKey);
+
+  const response = await fetch(url.toString());
+  if (!response.ok) {
+    throw new Error(`Failed to fetch generated video: ${response.statusText}`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  return new Uint8Array(arrayBuffer);
+}
+
+async function generateStoryboardVideo(
+  ai: GoogleGenAI,
+  prompt: string,
+): Promise<{ bytes: Uint8Array; mimeType: string } | null> {
+  try {
+    const operation = await (ai.models as any).generateVideos({
+      model: 'veo-3.1-fast-generate-preview',
+      prompt,
+      config: {
+        numberOfVideos: 1,
+        resolution: '720p',
+        aspectRatio: '16:9',
+      },
+    });
+
+    const completed = await pollVideoOperation(ai, operation);
+    const uri = completed?.response?.generatedVideos?.[0]?.video?.uri;
+    if (!uri) {
+      return null;
+    }
+
+    const bytes = await fetchVideoBytes(uri);
+    return { bytes, mimeType: 'video/mp4' };
+  } catch {
+    return null;
+  }
+}
+
 export async function generateCreativeStoryParts(
   ai: GoogleGenAI,
   requirementProfile: RequirementProfile,
   userRequest: string,
+  options: StoryGenerationOptions = {},
 ): Promise<{ parts: StoryPart[]; summary: string }> {
   const prompt = `
 You are a Creative Storyteller. Generate interleaved multimodal story output.
@@ -180,15 +251,60 @@ Rules:
     }));
 
   for (const part of parts) {
-    if (part.kind !== 'image_prompt') {
-      if (part.kind === 'voiceover') {
-        const voiceoverAudio = await generateVoiceoverAudio(ai, part.content);
-        if (voiceoverAudio) {
-          part.mediaType = 'audio';
-          part.mimeType = voiceoverAudio.mimeType;
-          part.data = voiceoverAudio.data;
-        }
+    if (part.kind === 'voiceover') {
+      const voiceoverAudio = await generateVoiceoverAudio(ai, part.content);
+      if (voiceoverAudio) {
+        part.mediaType = 'audio';
+        part.mimeType = voiceoverAudio.mimeType;
+        part.data = voiceoverAudio.data;
       }
+      continue;
+    }
+
+    if (part.kind === 'storyboard' && options.persistVideo) {
+      options.emitRenderStatus?.(
+        part.sceneId,
+        'queued',
+        'Storyboard video is queued for rendering.',
+      );
+      options.emitRenderStatus?.(
+        part.sceneId,
+        'rendering',
+        'Rendering storyboard video clip...',
+      );
+
+      const videoPrompt = [
+        `Create a cinematic short scene video for ${part.sceneId}.`,
+        `Audience: ${requirementProfile.audience}. Tone: ${requirementProfile.tone}.`,
+        `Style: ${requirementProfile.style}.`,
+        `Storyboard details: ${part.content}`,
+      ].join(' ');
+
+      const generatedVideo = await generateStoryboardVideo(ai, videoPrompt);
+      if (generatedVideo) {
+        const url = await options.persistVideo(
+          generatedVideo.bytes,
+          generatedVideo.mimeType,
+        );
+        part.mediaType = 'video';
+        part.mimeType = generatedVideo.mimeType;
+        part.url = url;
+        options.emitRenderStatus?.(
+          part.sceneId,
+          'ready',
+          'Storyboard video clip is ready.',
+        );
+      } else {
+        options.emitRenderStatus?.(
+          part.sceneId,
+          'failed',
+          'Storyboard video rendering failed. Text storyboard kept.',
+        );
+      }
+      continue;
+    }
+
+    if (part.kind !== 'image_prompt') {
       continue;
     }
 

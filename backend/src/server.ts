@@ -20,6 +20,27 @@ import {
   shouldEnterStoryMode,
 } from './agent/requirement-analyzer.js';
 import { generateCreativeStoryParts } from './story/creative-storyteller.js';
+import { randomUUID } from 'node:crypto';
+
+const mediaStore = new Map<
+  string,
+  { bytes: Uint8Array; mimeType: string; createdAt: number }
+>();
+
+function persistMedia(bytes: Uint8Array, mimeType: string): string {
+  const id = randomUUID();
+  mediaStore.set(id, { bytes, mimeType, createdAt: Date.now() });
+  return `/media/${id}`;
+}
+
+function cleanupMediaStore(maxAgeMs = 20 * 60 * 1000): void {
+  const now = Date.now();
+  for (const [id, item] of mediaStore.entries()) {
+    if (now - item.createdAt > maxAgeMs) {
+      mediaStore.delete(id);
+    }
+  }
+}
 
 const app = express();
 app.use(cors());
@@ -27,6 +48,17 @@ app.use(express.json());
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
+});
+
+app.get('/media/:id', (req, res) => {
+  const item = mediaStore.get(req.params.id);
+  if (!item) {
+    res.status(404).json({ error: 'Media not found.' });
+    return;
+  }
+  res.setHeader('Content-Type', item.mimeType);
+  res.setHeader('Cache-Control', 'private, max-age=300');
+  res.send(Buffer.from(item.bytes));
 });
 
 const server = http.createServer(app);
@@ -135,8 +167,28 @@ wss.on('connection', (socket) => {
               client,
               requirementProfile,
               text,
+              {
+                persistVideo: async (bytes, mimeType) => {
+                  cleanupMediaStore();
+                  const relativePath = persistMedia(bytes, mimeType);
+                  return relativePath;
+                },
+                emitRenderStatus: (sceneId, status, message) => {
+                  send(socket, {
+                    type: 'story_render_status',
+                    payload: {
+                      sceneId,
+                      status,
+                      message,
+                    },
+                  });
+                },
+              },
             );
             for (const part of story.parts) {
+              if (part.url && part.url.startsWith('/')) {
+                part.url = `http://localhost:${config.port}${part.url}`;
+              }
               send(socket, {
                 type: 'story_part',
                 payload: part,

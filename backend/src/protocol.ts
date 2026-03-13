@@ -61,6 +61,8 @@ export type StoryPart = {
   url?: string;
 };
 
+export type StoryRenderStatus = 'queued' | 'rendering' | 'ready' | 'failed';
+
 export type ServerToClientMessage =
   | {
       type: 'status';
@@ -123,5 +125,13 @@ export type ServerToClientMessage =
       type: 'story_generation_done';
       payload: {
         summary: string;
+      };
+    }
+  | {
+      type: 'story_render_status';
+      payload: {
+        sceneId: string;
+        status: StoryRenderStatus;
+        message: string;
       };
     };

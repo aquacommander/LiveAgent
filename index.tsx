@@ -41,6 +41,7 @@ export class GdmLiveAudio extends LitElement {
   @state() storySummary = '';
   @state() showIntelligencePanel = true;
   @state() speakingStoryPartKey = '';
+  @state() storyRenderStatusByScene: Record<string, { status: string; message: string }> = {};
   private storyVoiceAudioElement: HTMLAudioElement | null = null;
   private storyVoiceObjectUrl: string | null = null;
 
@@ -417,6 +418,31 @@ export class GdmLiveAudio extends LitElement {
         text-transform: uppercase;
         letter-spacing: 0.7px;
         color: rgba(156, 184, 236, 0.82);
+      }
+
+      .story-render-status {
+        margin-top: 6px;
+        display: inline-flex;
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        border: 1px solid rgba(120, 164, 247, 0.35);
+        color: rgba(212, 230, 255, 0.95);
+      }
+
+      .story-render-status[data-state='rendering'],
+      .story-render-status[data-state='queued'] {
+        border-color: rgba(126, 177, 255, 0.45);
+      }
+
+      .story-render-status[data-state='ready'] {
+        border-color: rgba(100, 214, 170, 0.55);
+        color: rgba(184, 255, 230, 0.95);
+      }
+
+      .story-render-status[data-state='failed'] {
+        border-color: rgba(255, 132, 132, 0.55);
+        color: rgba(255, 206, 206, 0.95);
       }
 
       .story-content {
@@ -825,6 +851,17 @@ export class GdmLiveAudio extends LitElement {
       return;
     }
 
+    if (message.type === 'story_render_status') {
+      this.storyRenderStatusByScene = {
+        ...this.storyRenderStatusByScene,
+        [message.payload.sceneId]: {
+          status: message.payload.status,
+          message: message.payload.message,
+        },
+      };
+      return;
+    }
+
     if (message.type === 'interrupted') {
       this.audioPlayback.stopAll();
       return;
@@ -1071,6 +1108,7 @@ export class GdmLiveAudio extends LitElement {
     this.clarificationQuestion = '';
     this.storyParts = [];
     this.storySummary = '';
+    this.storyRenderStatusByScene = {};
     this.connectLive();
     this.updateStatus('Session reset.');
   }
@@ -1208,6 +1246,16 @@ export class GdmLiveAudio extends LitElement {
             (part) => html`
               <div class="story-card">
                 <div class="story-kind">${part.sceneId} · ${part.kind}</div>
+                ${part.kind === 'storyboard' && this.storyRenderStatusByScene[part.sceneId]
+                  ? html`
+                      <div
+                        class="story-render-status"
+                        data-state=${this.storyRenderStatusByScene[part.sceneId].status}
+                      >
+                        ${this.storyRenderStatusByScene[part.sceneId].message}
+                      </div>
+                    `
+                  : ''}
                 <div class="story-content">${part.content}</div>
                 ${part.mediaType === 'audio'
                   ? html`
