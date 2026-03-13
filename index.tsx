@@ -264,7 +264,7 @@ export class GdmLiveAudio extends LitElement {
         position: absolute;
         top: 82px;
         right: 24px;
-        z-index: 102;
+        z-index: 140;
         background: rgba(4, 14, 31, 0.72);
         backdrop-filter: blur(18px);
         border: 1px solid rgba(143, 184, 255, 0.2);
@@ -311,7 +311,7 @@ export class GdmLiveAudio extends LitElement {
       .settings-backdrop {
         position: absolute;
         inset: 0;
-        z-index: 96;
+        z-index: 135;
         background: transparent;
       }
 
@@ -361,7 +361,7 @@ export class GdmLiveAudio extends LitElement {
       .story-panel {
         position: absolute;
         top: 172px;
-        right: 24px;
+        left: 24px;
         z-index: 103;
         width: min(380px, calc(100vw - 34px));
         height: clamp(280px, calc(100vh - 210px), 575px);
@@ -559,7 +559,7 @@ export class GdmLiveAudio extends LitElement {
 
         .story-panel {
           top: 72px;
-          right: 14px;
+          left: 14px;
           width: min(320px, calc(100vw - 20px));
           height: clamp(240px, calc(100vh - 160px), 460px);
           padding: 12px;
@@ -613,7 +613,7 @@ export class GdmLiveAudio extends LitElement {
 
         .story-panel {
           top: 62px;
-          right: 12px;
+          left: 12px;
           width: 52vw;
           min-width: 188px;
           height: clamp(220px, calc(100vh - 150px), 410px);
