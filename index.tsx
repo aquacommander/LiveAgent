@@ -303,17 +303,18 @@ export class GdmLiveAudio extends LitElement {
 
       .camera-preview-shell {
         position: absolute;
-        top: 24px;
-        left: 24px;
-        z-index: 90;
-        width: 180px;
-        height: 110px;
-        border: 1px solid rgba(255, 255, 255, 0.22);
-        border-radius: 12px;
+        top: 22px;
+        left: 22px;
+        z-index: 140;
+        width: 390px;
+        height: 240px;
+        border: 1px solid rgba(128, 190, 255, 0.55);
+        border-radius: 14px;
         overflow: hidden;
-        backdrop-filter: blur(8px);
-        background: rgba(0, 0, 0, 0.35);
-        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+        background: #000;
+        box-shadow:
+          0 14px 28px rgba(0, 0, 0, 0.55),
+          0 0 18px rgba(76, 197, 255, 0.35);
       }
 
       .camera-preview-shell[data-active='false'] {
@@ -325,6 +326,7 @@ export class GdmLiveAudio extends LitElement {
         height: 100%;
         object-fit: cover;
         transform: scaleX(-1);
+        background: #000;
       }
 
       .send-vision-button {

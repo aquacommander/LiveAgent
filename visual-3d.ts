@@ -38,6 +38,16 @@ export class GdmLiveAudioVisuals3D extends LitElement {
   private backdrop!: THREE.Mesh;
   private composer!: EffectComposer;
   private sphere!: THREE.Mesh;
+  private electronGroup!: THREE.Group;
+  private electronParticles: Array<{
+    mesh: THREE.Mesh;
+    baseRadius: number;
+    angle: number;
+    speed: number;
+    wavePhase: number;
+    waveFrequency: number;
+    tilt: THREE.Vector3;
+  }> = [];
   private ringsGroup!: THREE.Group;
   private ringMaterials: THREE.ShaderMaterial[] = [];
   private prevTime = 0;
@@ -86,7 +96,7 @@ export class GdmLiveAudioVisuals3D extends LitElement {
 
   private init() {
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x100c14);
+    scene.background = new THREE.Color(0x060a18);
 
     const backdrop = new THREE.Mesh(
       new THREE.IcosahedronGeometry(10, 5),
@@ -115,6 +125,11 @@ export class GdmLiveAudioVisuals3D extends LitElement {
     camera.position.set(2, -2, 5);
     this.camera = camera;
 
+    scene.add(new THREE.AmbientLight(0x4a76ff, 0.45));
+    const keyLight = new THREE.PointLight(0x7edbff, 2.2, 28, 1.8);
+    keyLight.position.set(3, 2, 4);
+    scene.add(keyLight);
+
     const renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
       antialias: false,
@@ -124,21 +139,34 @@ export class GdmLiveAudioVisuals3D extends LitElement {
 
     const geometry = new THREE.IcosahedronGeometry(1, 10);
 
-    new EXRLoader().load('piz_compressed.exr', (texture: THREE.Texture) => {
-      texture.mapping = THREE.EquirectangularReflectionMapping;
-      const pmremGenerator = new THREE.PMREMGenerator(renderer);
-      const exrCubeRenderTarget = pmremGenerator.fromEquirectangular(texture);
-      sphereMaterial.envMap = exrCubeRenderTarget.texture;
-      sphere.visible = true;
-      pmremGenerator.dispose();
-    });
+    let sphereMaterial: THREE.MeshStandardMaterial;
+    let sphere: THREE.Mesh;
 
-    const sphereMaterial = new THREE.MeshStandardMaterial({
-      color: 0x000010,
-      metalness: 0.9,
-      roughness: 0.1,
-      emissive: 0x000010,
-      emissiveIntensity: 1.5,
+    new EXRLoader().load(
+      'piz_compressed.exr',
+      (texture: THREE.Texture) => {
+        texture.mapping = THREE.EquirectangularReflectionMapping;
+        const pmremGenerator = new THREE.PMREMGenerator(renderer);
+        const exrCubeRenderTarget = pmremGenerator.fromEquirectangular(texture);
+        sphereMaterial.envMap = exrCubeRenderTarget.texture;
+        sphere.visible = true;
+        this.electronGroup.visible = true;
+        pmremGenerator.dispose();
+      },
+      undefined,
+      () => {
+        // Fallback when HDR asset is unavailable.
+        sphere.visible = true;
+        this.electronGroup.visible = true;
+      },
+    );
+
+    sphereMaterial = new THREE.MeshStandardMaterial({
+      color: 0x070a2d,
+      metalness: 0.92,
+      roughness: 0.08,
+      emissive: 0x0b2c66,
+      emissiveIntensity: 2.2,
     });
 
     sphereMaterial.onBeforeCompile = (shader) => {
@@ -149,10 +177,11 @@ export class GdmLiveAudioVisuals3D extends LitElement {
       shader.vertexShader = sphereVS;
     };
 
-    const sphere = new THREE.Mesh(geometry, sphereMaterial);
+    sphere = new THREE.Mesh(geometry, sphereMaterial);
     scene.add(sphere);
     sphere.visible = false;
     this.sphere = sphere;
+    this.setupElectronOrbit(scene);
 
     this.setupRings(scene);
     this.setupStarfield(scene);
@@ -160,7 +189,7 @@ export class GdmLiveAudioVisuals3D extends LitElement {
     const renderPass = new RenderPass(scene, camera);
     const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      5, 0.5, 0,
+      3.5, 0.7, 0.05,
     );
     const composer = new EffectComposer(renderer);
     composer.addPass(renderPass);
@@ -267,6 +296,42 @@ export class GdmLiveAudioVisuals3D extends LitElement {
     }
   }
 
+  private setupElectronOrbit(scene: THREE.Scene) {
+    const electronGroup = new THREE.Group();
+    electronGroup.visible = false;
+    scene.add(electronGroup);
+    this.electronGroup = electronGroup;
+
+    const particleCount = 28;
+    const particleGeometry = new THREE.SphereGeometry(0.018, 8, 8);
+
+    for (let i = 0; i < particleCount; i++) {
+      const material = new THREE.MeshBasicMaterial({
+        color: new THREE.Color().setHSL(0.52 + Math.random() * 0.08, 0.9, 0.65),
+        transparent: true,
+        opacity: 0.72,
+        blending: THREE.AdditiveBlending,
+      });
+
+      const mesh = new THREE.Mesh(particleGeometry, material);
+      electronGroup.add(mesh);
+
+      this.electronParticles.push({
+        mesh,
+        baseRadius: 1.25 + Math.random() * 0.35,
+        angle: Math.random() * Math.PI * 2,
+        speed: 0.006 + Math.random() * 0.01,
+        wavePhase: Math.random() * Math.PI * 2,
+        waveFrequency: 1.0 + Math.random() * 2.2,
+        tilt: new THREE.Vector3(
+          (Math.random() - 0.5) * 0.35,
+          (Math.random() - 0.5) * 0.35,
+          (Math.random() - 0.5) * 0.35,
+        ),
+      });
+    }
+  }
+
   private animation() {
     requestAnimationFrame(() => this.animation());
     if (!this.inputAnalyser || !this.outputAnalyser) return;
@@ -361,13 +426,46 @@ export class GdmLiveAudioVisuals3D extends LitElement {
       if (this.useDynamicColors) {
         const aiColor = new THREE.Color(0x00ffff);
         const userColor = new THREE.Color(0xff00ff);
-        const baseColor = new THREE.Color(0x000010);
+        const baseColor = new THREE.Color(0x05143d);
         const targetEmissive = baseColor.clone().lerp(userColor, inputLevel).lerp(aiColor, outputLevel);
         sphereMaterial.emissive.lerp(targetEmissive, 0.1);
-        sphereMaterial.emissiveIntensity = 1.5 + outputLevel * 5.0 + inputLevel * 2.0;
+        sphereMaterial.emissiveIntensity = 2.2 + outputLevel * 5.5 + inputLevel * 2.5;
       } else {
-        sphereMaterial.emissive.setHex(0x000010);
-        sphereMaterial.emissiveIntensity = 1.5;
+        sphereMaterial.emissive.setHex(0x0b2c66);
+        sphereMaterial.emissiveIntensity = 2.2;
+      }
+
+      if (this.electronGroup) {
+        this.electronGroup.visible = true;
+        this.electronGroup.rotation.y += 0.0015 + outputLevel * 0.008;
+        this.electronGroup.rotation.x += 0.0009 + inputLevel * 0.005;
+
+        const activity = 0.45 + outputLevel * 0.95 + inputLevel * 0.4;
+
+        for (const particle of this.electronParticles) {
+          particle.angle += particle.speed * dt * (1 + outputLevel * 8);
+          particle.wavePhase += 0.02 * dt * (1 + inputLevel * 4);
+
+          const radialWave =
+            Math.sin(particle.wavePhase * particle.waveFrequency + t * 0.0025) *
+            (0.1 + outputLevel * 0.18);
+          const verticalWave =
+            Math.cos(particle.wavePhase * 1.3 + t * 0.0032) *
+            (0.18 + inputLevel * 0.22);
+          const radius = particle.baseRadius + radialWave;
+
+          const x = Math.cos(particle.angle) * radius + particle.tilt.x;
+          const z = Math.sin(particle.angle) * radius + particle.tilt.z;
+          const y = verticalWave + particle.tilt.y;
+          particle.mesh.position.set(x, y, z);
+
+          const pulse = 0.65 + Math.sin(t * 0.01 + particle.wavePhase) * 0.35;
+          const scale = 0.8 + activity * 0.6 * pulse;
+          particle.mesh.scale.setScalar(scale);
+
+          const material = particle.mesh.material as THREE.MeshBasicMaterial;
+          material.opacity = 0.45 + pulse * 0.35 + outputLevel * 0.2;
+        }
       }
 
       sphereMaterial.userData.shader.uniforms.time.value += (dt * 0.1 * outputLevel);
