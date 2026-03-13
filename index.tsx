@@ -40,7 +40,7 @@ export class GdmLiveAudio extends LitElement {
   @state() clarificationQuestion = '';
   @state() storyParts: StoryPart[] = [];
   @state() storySummary = '';
-  @state() showIntelligencePanel = true;
+  @state() showIntelligencePanel = false;
   @state() speakingStoryPartKey = '';
   @state() storyRenderStatusByScene: Record<string, { status: string; message: string }> = {};
   @state() storyQualityReport: StoryQualityReport | null = null;
