@@ -1,6 +1,31 @@
 import { GoogleGenAI } from '@google/genai';
 import type { RequirementProfile, StoryPart } from '../protocol.js';
 
+async function generateInlineImage(
+  ai: GoogleGenAI,
+  prompt: string,
+): Promise<{ data: string; mimeType: string } | null> {
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash-preview-image-generation',
+      contents: prompt,
+    });
+
+    const parts = response.candidates?.[0]?.content?.parts ?? [];
+    for (const part of parts) {
+      if (part.inlineData?.data && part.inlineData?.mimeType?.startsWith('image/')) {
+        return {
+          data: part.inlineData.data,
+          mimeType: part.inlineData.mimeType,
+        };
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function generateCreativeStoryParts(
   ai: GoogleGenAI,
   requirementProfile: RequirementProfile,
@@ -91,7 +116,29 @@ Rules:
       sceneId: part.sceneId ?? `scene-${Math.floor(index / 5) + 1}`,
       kind: safeKinds.has(part.kind ?? '') ? (part.kind as StoryPart['kind']) : 'narration',
       content: part.content ?? '',
+      mediaType: 'text',
     }));
+
+  for (const part of parts) {
+    if (part.kind !== 'image_prompt') {
+      continue;
+    }
+
+    const visualPrompt = [
+      `Create a cinematic high quality image for scene ${part.sceneId}.`,
+      `Audience: ${requirementProfile.audience}. Tone: ${requirementProfile.tone}.`,
+      `Style: ${requirementProfile.style}.`,
+      `Scene content: ${part.content}`,
+      'No text overlay.',
+    ].join(' ');
+
+    const image = await generateInlineImage(ai, visualPrompt);
+    if (image) {
+      part.mediaType = 'image';
+      part.mimeType = image.mimeType;
+      part.data = image.data;
+    }
+  }
 
   return {
     parts,

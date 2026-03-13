@@ -410,6 +410,20 @@ export class GdmLiveAudio extends LitElement {
         color: rgba(228, 238, 255, 0.95);
       }
 
+      .story-media {
+        margin-top: 8px;
+        border-radius: 10px;
+        overflow: hidden;
+        border: 1px solid rgba(121, 166, 247, 0.2);
+        background: rgba(9, 22, 48, 0.8);
+      }
+
+      .story-media img,
+      .story-media video {
+        width: 100%;
+        display: block;
+      }
+
       .summary-text {
         margin-top: 10px;
         font-size: 12px;
@@ -841,6 +855,23 @@ export class GdmLiveAudio extends LitElement {
               <div class="story-card">
                 <div class="story-kind">${part.sceneId} · ${part.kind}</div>
                 <div class="story-content">${part.content}</div>
+                ${part.mediaType === 'image' && part.data && part.mimeType
+                  ? html`
+                      <div class="story-media">
+                        <img
+                          src=${`data:${part.mimeType};base64,${part.data}`}
+                          alt=${`Generated visual for ${part.sceneId}`}
+                        >
+                      </div>
+                    `
+                  : ''}
+                ${part.mediaType === 'video' && part.url
+                  ? html`
+                      <div class="story-media">
+                        <video controls src=${part.url}></video>
+                      </div>
+                    `
+                  : ''}
               </div>
             `,
           )}

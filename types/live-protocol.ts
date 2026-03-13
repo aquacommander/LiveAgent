@@ -55,6 +55,10 @@ export type StoryPart = {
   sceneId: string;
   kind: StoryPartKind;
   content: string;
+  mediaType?: 'image' | 'video' | 'audio' | 'text';
+  mimeType?: string;
+  data?: string;
+  url?: string;
 };
 
 export type ServerToClientMessage =
