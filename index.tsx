@@ -364,7 +364,7 @@ export class GdmLiveAudio extends LitElement {
         right: 24px;
         z-index: 103;
         width: min(380px, calc(100vw - 34px));
-        height: min(575px, calc(100vh - 190px));
+        height: clamp(280px, calc(100vh - 210px), 575px);
         overflow: auto;
         border-radius: 18px;
         background: rgba(5, 12, 30, 0.76);
@@ -513,7 +513,7 @@ export class GdmLiveAudio extends LitElement {
 
         .story-panel {
           width: min(340px, calc(100vw - 24px));
-          height: min(520px, calc(100vh - 180px));
+          height: clamp(260px, calc(100vh - 190px), 520px);
         }
       }
 
@@ -561,7 +561,7 @@ export class GdmLiveAudio extends LitElement {
           top: 72px;
           right: 14px;
           width: min(320px, calc(100vw - 20px));
-          height: min(460px, calc(100vh - 150px));
+          height: clamp(240px, calc(100vh - 160px), 460px);
           padding: 12px;
         }
 
@@ -616,7 +616,7 @@ export class GdmLiveAudio extends LitElement {
           right: 12px;
           width: 52vw;
           min-width: 188px;
-          height: min(410px, calc(100vh - 145px));
+          height: clamp(220px, calc(100vh - 150px), 410px);
           border-radius: 14px;
           padding: 10px;
         }
@@ -656,6 +656,54 @@ export class GdmLiveAudio extends LitElement {
         .status-text {
           padding: 8px 14px;
           font-size: 13px;
+        }
+      }
+
+      @supports (height: 100dvh) {
+        .story-panel {
+          height: clamp(280px, calc(100dvh - 210px), 575px);
+        }
+
+        @media (max-width: 1200px) {
+          .story-panel {
+            height: clamp(260px, calc(100dvh - 190px), 520px);
+          }
+        }
+
+        @media (max-width: 900px) {
+          .story-panel {
+            height: clamp(240px, calc(100dvh - 160px), 460px);
+          }
+        }
+
+        @media (max-width: 640px) {
+          .story-panel {
+            height: clamp(220px, calc(100dvh - 150px), 410px);
+          }
+        }
+      }
+
+      @supports (height: 100svh) {
+        .story-panel {
+          height: clamp(280px, calc(100svh - 210px), 575px);
+        }
+
+        @media (max-width: 1200px) {
+          .story-panel {
+            height: clamp(260px, calc(100svh - 190px), 520px);
+          }
+        }
+
+        @media (max-width: 900px) {
+          .story-panel {
+            height: clamp(240px, calc(100svh - 160px), 460px);
+          }
+        }
+
+        @media (max-width: 640px) {
+          .story-panel {
+            height: clamp(220px, calc(100svh - 150px), 410px);
+          }
         }
       }
   `;
