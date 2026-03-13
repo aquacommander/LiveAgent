@@ -52,23 +52,87 @@ export class GdmLiveAudio extends LitElement {
   @query('#cameraPreview') private cameraPreviewElement?: HTMLVideoElement;
 
   static styles = css`
-      #status {
+      :host {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      .app-shell {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      .branding {
         position: absolute;
-        bottom: 5vh;
-        left: 0;
-        right: 0;
-        z-index: 10;
-        text-align: center;
-        color: rgba(255, 255, 255, 0.6);
+        top: 32px;
+        left: 34px;
+        z-index: 101;
+        color: rgba(226, 236, 255, 0.92);
         font-family: 'Inter', sans-serif;
-        font-size: 14px;
+        user-select: none;
         pointer-events: none;
       }
 
-      .controls {
-        z-index: 100;
+      .branding h1 {
+        margin: 0;
+        font-size: 36px;
+        line-height: 1;
+        letter-spacing: 2px;
+        font-weight: 700;
+      }
+
+      .branding p {
+        margin: 10px 0 0;
+        font-size: 18px;
+        color: rgba(202, 214, 238, 0.72);
+        letter-spacing: 0.3px;
+      }
+
+      #status {
         position: absolute;
-        bottom: 10vh;
+        bottom: 4vh;
+        left: 0;
+        right: 0;
+        z-index: 101;
+        text-align: center;
+        color: rgba(223, 233, 251, 0.8);
+        font-family: 'Inter', sans-serif;
+        font-size: 18px;
+        letter-spacing: 0.3px;
+        pointer-events: none;
+      }
+
+      .status-text {
+        display: inline-block;
+        padding: 10px 20px;
+        border-radius: 14px;
+        background: rgba(6, 15, 36, 0.36);
+        border: 1px solid rgba(115, 155, 255, 0.25);
+        box-shadow: 0 0 28px rgba(45, 127, 255, 0.25);
+      }
+
+      .status-text::after {
+        content: '';
+        display: block;
+        margin: 8px auto 0;
+        width: 180px;
+        height: 2px;
+        border-radius: 999px;
+        background: linear-gradient(
+          90deg,
+          rgba(0, 241, 255, 0),
+          rgba(95, 190, 255, 0.95),
+          rgba(0, 241, 255, 0)
+        );
+      }
+
+      .controls {
+        z-index: 101;
+        position: absolute;
+        bottom: 14vh;
         left: 0;
         right: 0;
         display: flex;
@@ -79,33 +143,48 @@ export class GdmLiveAudio extends LitElement {
 
         button {
           outline: none;
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(126, 177, 255, 0.28);
           color: white;
           border-radius: 50%;
-          background: rgba(255, 255, 255, 0.05);
-          width: 56px;
-          height: 56px;
+          background: radial-gradient(
+            circle at 30% 20%,
+            rgba(43, 73, 128, 0.34),
+            rgba(9, 22, 50, 0.6)
+          );
+          width: 82px;
+          height: 82px;
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
           transition: all 0.3s ease;
-          backdrop-filter: blur(10px);
+          backdrop-filter: blur(12px);
+          box-shadow:
+            inset 0 0 15px rgba(154, 201, 255, 0.15),
+            0 0 20px rgba(56, 139, 255, 0.15);
 
           &:hover {
-            background: rgba(255, 255, 255, 0.15);
-            transform: scale(1.05);
-            border-color: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px) scale(1.02);
+            border-color: rgba(172, 212, 255, 0.7);
+            box-shadow:
+              inset 0 0 20px rgba(170, 212, 255, 0.2),
+              0 0 24px rgba(73, 161, 255, 0.35);
           }
 
           svg {
-            width: 24px;
-            height: 24px;
+            width: 34px;
+            height: 34px;
           }
         }
 
         #startButton svg {
           fill: #ff3b30;
+        }
+
+        #startButton {
+          box-shadow:
+            inset 0 0 25px rgba(255, 108, 108, 0.2),
+            0 0 30px rgba(255, 66, 66, 0.32);
         }
 
         #stopButton svg {
@@ -118,41 +197,71 @@ export class GdmLiveAudio extends LitElement {
         }
       }
 
-      .settings-toggle {
+      .top-actions {
         position: absolute;
-        top: 30px;
-        right: 30px;
-        z-index: 100;
-        background: rgba(0, 0, 0, 0.3);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        color: white;
-        padding: 10px;
-        border-radius: 12px;
-        cursor: pointer;
+        top: 24px;
+        right: 24px;
+        z-index: 102;
+        display: flex;
+        gap: 8px;
+        padding: 6px;
+        border-radius: 20px;
+        background: rgba(8, 21, 48, 0.38);
+        border: 1px solid rgba(134, 177, 255, 0.25);
         backdrop-filter: blur(10px);
-        transition: all 0.3s ease;
+        box-shadow: 0 0 18px rgba(68, 160, 255, 0.18);
+      }
 
-        &:hover {
-          background: rgba(255, 255, 255, 0.1);
-        }
+      .top-action-button {
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        border: 1px solid rgba(139, 183, 255, 0.25);
+        background: radial-gradient(
+          circle at 30% 25%,
+          rgba(46, 86, 154, 0.46),
+          rgba(7, 16, 36, 0.72)
+        );
+        color: rgba(218, 232, 255, 0.95);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.25s ease;
+      }
+
+      .top-action-button:hover {
+        transform: translateY(-1px);
+        border-color: rgba(173, 210, 255, 0.7);
+        box-shadow: 0 0 16px rgba(87, 170, 255, 0.4);
+      }
+
+      .top-action-button svg {
+        width: 22px;
+        height: 22px;
+      }
+
+      .top-action-button[data-active='true'] {
+        border-color: rgba(160, 218, 255, 0.75);
+        box-shadow: 0 0 16px rgba(98, 196, 255, 0.45);
       }
 
       .settings-panel {
         position: absolute;
-        top: 80px;
-        right: 30px;
-        z-index: 100;
-        background: rgba(0, 0, 0, 0.6);
-        backdrop-filter: blur(20px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        top: 82px;
+        right: 24px;
+        z-index: 102;
+        background: rgba(4, 14, 31, 0.72);
+        backdrop-filter: blur(18px);
+        border: 1px solid rgba(143, 184, 255, 0.2);
         padding: 20px;
-        border-radius: 16px;
-        color: white;
+        border-radius: 22px;
+        color: rgba(228, 238, 255, 0.95);
         display: flex;
         flex-direction: column;
         gap: 15px;
-        min-width: 220px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        min-width: 280px;
+        box-shadow: 0 18px 45px rgba(0,0,0,0.48);
         animation: slideIn 0.3s ease-out;
       }
 
@@ -181,14 +290,14 @@ export class GdmLiveAudio extends LitElement {
         font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 1px;
-        color: rgba(255, 255, 255, 0.4);
+        color: rgba(165, 182, 210, 0.55);
         margin-bottom: 5px;
       }
 
       .settings-backdrop {
         position: absolute;
         inset: 0;
-        z-index: 95;
+        z-index: 96;
         background: transparent;
       }
 
@@ -216,6 +325,21 @@ export class GdmLiveAudio extends LitElement {
         height: 100%;
         object-fit: cover;
         transform: scaleX(-1);
+      }
+
+      .send-vision-button {
+        border-radius: 10px;
+        height: 40px;
+        border: 1px solid rgba(142, 185, 255, 0.32);
+        background: rgba(14, 32, 64, 0.9);
+        color: rgba(233, 241, 255, 0.96);
+        font-size: 16px;
+        cursor: pointer;
+      }
+
+      .send-vision-button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
       }
   `;
 
@@ -464,7 +588,7 @@ export class GdmLiveAudio extends LitElement {
 
   render() {
     return html`
-      <div>
+      <div class="app-shell">
         ${this.showSettings
           ? html`<div
               class="settings-backdrop"
@@ -473,6 +597,11 @@ export class GdmLiveAudio extends LitElement {
               }}
             ></div>`
           : ''}
+
+        <div class="branding">
+          <h1>AUDIO ORB</h1>
+          <p>Talk, create, and act — one conversation.</p>
+        </div>
 
         <div class="camera-preview-shell" data-active=${String(this.cameraEnabled)}>
           <video
@@ -484,9 +613,15 @@ export class GdmLiveAudio extends LitElement {
           ></video>
         </div>
 
-        <button class="settings-toggle" @click=${() => this.showSettings = !this.showSettings}>
-          <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#FFFFFF"><path d="m370-80-16-128q-13-5-24.5-12T307-235l-119 50L78-375l103-78q-1-7-1-13.5t1-13.5l-103-78 110-190 119 50q11-8 23-15t24-12l16-128h220l16 128q13 5 24.5 12t22.5 15l119-50 110 190-103 78q1 7 1 13.5t-1 13.5l103 78-110 190-119-50q-11 8-23 15t-24 12L590-80H370Zm112-260q58 0 99-41t41-99q0-58-41-99t-99-41q-58 0-99 41t-41 99q0 58 41 99t99 41Z"/></svg>
-        </button>
+        <div class="top-actions">
+          <button
+            class="top-action-button"
+            title="Settings"
+            data-active=${String(this.showSettings)}
+            @click=${() => (this.showSettings = !this.showSettings)}>
+            <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor"><path d="m370-80-16-128q-13-5-24.5-12T307-235l-119 50L78-375l103-78q-1-7-1-13.5t1-13.5l-103-78 110-190 119 50q11-8 23-15t24-12l16-128h220l16 128q13 5 24.5 12t22.5 15l119-50 110 190-103 78q1 7 1 13.5t-1 13.5l103 78-110 190-119-50q-11 8-23 15t-24 12L590-80H370Zm112-260q58 0 99-41t41-99q0-58-41-99t-99-41q-58 0-99 41t-41 99q0 58 41 99t99 41Z"/></svg>
+          </button>
+        </div>
 
         ${this.showSettings ? html`
           <div class="settings-panel">
@@ -535,6 +670,7 @@ export class GdmLiveAudio extends LitElement {
               >
             </label>
             <button
+              class="send-vision-button"
               @click=${this.sendVisionFrame}
               ?disabled=${!this.cameraEnabled || !this.isConnected}
             >
@@ -587,7 +723,7 @@ export class GdmLiveAudio extends LitElement {
         </div>
 
         <div id="status">
-          ${this.error || this.status}
+          <div class="status-text">${this.error || this.status}</div>
           ${this.lastModelText ? html`<div>${this.lastModelText}</div>` : ''}
         </div>
         <gdm-live-audio-visuals-3d
