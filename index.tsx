@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /* tslint:disable */
 /**
  * @license
@@ -5,7 +6,7 @@
  */
 
 import { LitElement, css, html } from 'lit';
-import { customElement, state } from 'lit/decorators.js';
+import { customElement, query, state } from 'lit/decorators.js';
 import { AudioCapture } from './audio/audio-capture';
 import { AudioPlayback } from './audio/audio-playback';
 import { LiveWebSocketClient } from './live/live-websocket-client';
@@ -48,6 +49,7 @@ export class GdmLiveAudio extends LitElement {
     (chunk) => this.sendAudioChunk(chunk.data, chunk.mimeType),
   );
   private visionIntervalId: number | null = null;
+  @query('#cameraPreview') private cameraPreviewElement?: HTMLVideoElement;
 
   static styles = css`
       #status {
@@ -182,6 +184,32 @@ export class GdmLiveAudio extends LitElement {
         color: rgba(255, 255, 255, 0.4);
         margin-bottom: 5px;
       }
+
+      .camera-preview-shell {
+        position: absolute;
+        top: 24px;
+        left: 24px;
+        z-index: 90;
+        width: 180px;
+        height: 110px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 12px;
+        overflow: hidden;
+        backdrop-filter: blur(8px);
+        background: rgba(0, 0, 0, 0.35);
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+      }
+
+      .camera-preview-shell[data-active='false'] {
+        display: none;
+      }
+
+      .camera-preview-video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transform: scaleX(-1);
+      }
   `;
 
   connectedCallback(): void {
@@ -196,6 +224,12 @@ export class GdmLiveAudio extends LitElement {
     this.visionCapture.stop();
     this.liveClient.close();
     super.disconnectedCallback();
+  }
+
+  protected updated(changedProperties: Map<string, unknown>): void {
+    if (changedProperties.has('cameraEnabled')) {
+      this.syncCameraPreview();
+    }
   }
 
   private attachLiveHandlers(): void {
@@ -336,12 +370,14 @@ export class GdmLiveAudio extends LitElement {
     if (!enabled) {
       this.visionCapture.stop();
       this.stopVisionAutoSend();
+      this.syncCameraPreview();
       this.updateStatus('Camera disabled.');
       return;
     }
 
     try {
       await this.visionCapture.start();
+      this.syncCameraPreview();
       this.updateStatus('Camera enabled.');
       if (this.isRecording && this.autoSendVision) {
         this.startVisionAutoSend();
@@ -352,6 +388,23 @@ export class GdmLiveAudio extends LitElement {
         error instanceof Error ? error.message : 'Unable to enable camera.',
       );
     }
+  }
+
+  private syncCameraPreview(): void {
+    const video = this.cameraPreviewElement;
+    if (!video) {
+      return;
+    }
+
+    const stream = this.visionCapture.getStream();
+    if (!this.cameraEnabled || !stream) {
+      video.pause();
+      video.srcObject = null;
+      return;
+    }
+
+    video.srcObject = stream;
+    void video.play();
   }
 
   private async sendVisionFrame(): Promise<void> {
@@ -405,6 +458,16 @@ export class GdmLiveAudio extends LitElement {
   render() {
     return html`
       <div>
+        <div class="camera-preview-shell" data-active=${String(this.cameraEnabled)}>
+          <video
+            id="cameraPreview"
+            class="camera-preview-video"
+            autoplay
+            muted
+            playsinline
+          ></video>
+        </div>
+
         <button class="settings-toggle" @click=${() => this.showSettings = !this.showSettings}>
           <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#FFFFFF"><path d="m370-80-16-128q-13-5-24.5-12T307-235l-119 50L78-375l103-78q-1-7-1-13.5t1-13.5l-103-78 110-190 119 50q11-8 23-15t24-12l16-128h220l16 128q13 5 24.5 12t22.5 15l119-50 110 190-103 78q1 7 1 13.5t-1 13.5l103 78-110 190-119-50q-11 8-23 15t-24 12L590-80H370Zm112-260q58 0 99-41t41-99q0-58-41-99t-99-41q-58 0-99 41t-41 99q0 58 41 99t99 41Z"/></svg>
         </button>

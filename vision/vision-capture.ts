@@ -44,6 +44,10 @@ export class VisionCapture {
     this.videoElement.srcObject = null;
   }
 
+  getStream(): MediaStream | null {
+    return this.stream;
+  }
+
   snapshot(maxWidth = 640, quality = 0.75): {
     data: string;
     mimeType: string;
