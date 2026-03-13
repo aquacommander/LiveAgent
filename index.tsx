@@ -10,7 +10,12 @@ import { customElement, query, state } from 'lit/decorators.js';
 import { AudioCapture } from './audio/audio-capture';
 import { AudioPlayback } from './audio/audio-playback';
 import { LiveWebSocketClient } from './live/live-websocket-client';
-import type { ServerToClientMessage } from './types/live-protocol';
+import type {
+  AgentMode,
+  RequirementProfile,
+  ServerToClientMessage,
+  StoryPart,
+} from './types/live-protocol';
 import { VisionCapture } from './vision/vision-capture';
 import './visual-3d';
 
@@ -29,6 +34,11 @@ export class GdmLiveAudio extends LitElement {
   @state() cameraEnabled = false;
   @state() autoSendVision = false;
   @state() lastModelText = '';
+  @state() agentMode: AgentMode = 'conversation';
+  @state() requirementProfile: RequirementProfile | null = null;
+  @state() clarificationQuestion = '';
+  @state() storyParts: StoryPart[] = [];
+  @state() storySummary = '';
 
   private readonly inputAudioContext = new (window.AudioContext ||
     (window as any).webkitAudioContext)({ sampleRate: 16000 });
@@ -343,6 +353,93 @@ export class GdmLiveAudio extends LitElement {
         opacity: 0.45;
         cursor: not-allowed;
       }
+
+      .story-panel {
+        position: absolute;
+        top: 92px;
+        right: 24px;
+        z-index: 103;
+        width: min(420px, calc(100vw - 32px));
+        max-height: calc(100vh - 120px);
+        overflow: auto;
+        border-radius: 18px;
+        background: rgba(5, 12, 30, 0.76);
+        border: 1px solid rgba(142, 189, 255, 0.28);
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.42);
+        padding: 14px;
+        backdrop-filter: blur(14px);
+      }
+
+      .story-panel h3 {
+        margin: 0;
+        font-size: 13px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: rgba(172, 197, 241, 0.9);
+      }
+
+      .story-mode-chip {
+        margin-top: 8px;
+        display: inline-flex;
+        padding: 5px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(130, 179, 255, 0.4);
+        color: rgba(223, 236, 255, 0.95);
+        font-size: 12px;
+      }
+
+      .story-card {
+        margin-top: 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(116, 162, 247, 0.2);
+        background: rgba(11, 24, 52, 0.68);
+        padding: 10px;
+      }
+
+      .story-kind {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.7px;
+        color: rgba(156, 184, 236, 0.82);
+      }
+
+      .story-content {
+        margin-top: 6px;
+        font-size: 13px;
+        line-height: 1.45;
+        color: rgba(228, 238, 255, 0.95);
+      }
+
+      .summary-text {
+        margin-top: 10px;
+        font-size: 12px;
+        color: rgba(195, 220, 255, 0.85);
+      }
+
+      .requirement-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .requirement-item {
+        padding: 8px;
+        border-radius: 10px;
+        background: rgba(11, 24, 52, 0.55);
+        border: 1px solid rgba(124, 170, 248, 0.15);
+      }
+
+      .requirement-item strong {
+        display: block;
+        font-size: 11px;
+        color: rgba(152, 184, 247, 0.85);
+      }
+
+      .requirement-item span {
+        font-size: 12px;
+        color: rgba(224, 236, 255, 0.92);
+      }
   `;
 
   connectedCallback(): void {
@@ -428,6 +525,36 @@ export class GdmLiveAudio extends LitElement {
 
     if (message.type === 'model_text') {
       this.lastModelText = message.payload.text;
+      return;
+    }
+
+    if (message.type === 'mode_changed') {
+      this.agentMode = message.payload.mode;
+      this.updateStatus(message.payload.reason);
+      if (this.agentMode === 'conversation') {
+        this.storySummary = '';
+      }
+      return;
+    }
+
+    if (message.type === 'requirement_profile_updated') {
+      this.requirementProfile = message.payload.profile;
+      return;
+    }
+
+    if (message.type === 'clarification_question') {
+      this.clarificationQuestion = message.payload.question;
+      return;
+    }
+
+    if (message.type === 'story_part') {
+      this.storyParts = [...this.storyParts, message.payload];
+      return;
+    }
+
+    if (message.type === 'story_generation_done') {
+      this.storySummary = message.payload.summary;
+      this.updateStatus('Creative story generated.');
       return;
     }
 
@@ -584,6 +711,11 @@ export class GdmLiveAudio extends LitElement {
     this.liveClient.close();
     this.isConnected = false;
     this.isSessionReady = false;
+    this.agentMode = 'conversation';
+    this.requirementProfile = null;
+    this.clarificationQuestion = '';
+    this.storyParts = [];
+    this.storySummary = '';
     this.connectLive();
     this.updateStatus('Session reset.');
   }
@@ -680,6 +812,42 @@ export class GdmLiveAudio extends LitElement {
             </button>
           </div>
         ` : ''}
+
+        <div class="story-panel">
+          <h3>Live Agent Intelligence</h3>
+          <div class="story-mode-chip">
+            Mode: ${this.agentMode === 'creative_storyteller' ? 'Creative Storyteller' : 'Requirement Discovery'}
+          </div>
+          ${this.clarificationQuestion
+            ? html`
+                <div class="story-card">
+                  <div class="story-kind">Clarification</div>
+                  <div class="story-content">${this.clarificationQuestion}</div>
+                </div>
+              `
+            : ''}
+          ${this.requirementProfile
+            ? html`
+                <div class="requirement-grid">
+                  <div class="requirement-item"><strong>Objective</strong><span>${this.requirementProfile.objective}</span></div>
+                  <div class="requirement-item"><strong>Audience</strong><span>${this.requirementProfile.audience}</span></div>
+                  <div class="requirement-item"><strong>Tone</strong><span>${this.requirementProfile.tone}</span></div>
+                  <div class="requirement-item"><strong>Style</strong><span>${this.requirementProfile.style}</span></div>
+                </div>
+              `
+            : ''}
+          ${this.storyParts.map(
+            (part) => html`
+              <div class="story-card">
+                <div class="story-kind">${part.sceneId} · ${part.kind}</div>
+                <div class="story-content">${part.content}</div>
+              </div>
+            `,
+          )}
+          ${this.storySummary
+            ? html`<div class="summary-text">${this.storySummary}</div>`
+            : ''}
+        </div>
 
         <div class="controls">
           <button

@@ -10,9 +10,16 @@ import {
 } from '@google/genai';
 import { config } from './config.js';
 import type {
+  AgentMode,
   ClientToServerMessage,
+  RequirementProfile,
   ServerToClientMessage,
 } from './protocol.js';
+import {
+  analyzeRequirements,
+  shouldEnterStoryMode,
+} from './agent/requirement-analyzer.js';
+import { generateCreativeStoryParts } from './story/creative-storyteller.js';
 
 const app = express();
 app.use(cors());
@@ -48,6 +55,26 @@ function extractText(message: LiveServerMessage): string | null {
   return textParts.join('\n');
 }
 
+function extractUserTranscript(message: LiveServerMessage): string | null {
+  const unsafe = message as unknown as {
+    serverContent?: {
+      inputTranscription?: { text?: string };
+      inputTranscript?: { text?: string };
+      userText?: string;
+    };
+  };
+
+  const transcript =
+    unsafe.serverContent?.inputTranscription?.text ??
+    unsafe.serverContent?.inputTranscript?.text ??
+    unsafe.serverContent?.userText;
+
+  if (!transcript || !transcript.trim()) {
+    return null;
+  }
+  return transcript.trim();
+}
+
 function extractAudio(message: LiveServerMessage): {
   data: string;
   mimeType: string;
@@ -69,11 +96,93 @@ function extractAudio(message: LiveServerMessage): {
 wss.on('connection', (socket) => {
   const client = new GoogleGenAI({ apiKey: config.geminiApiKey });
   let session: Session | null = null;
+  let requirementProfile: RequirementProfile | null = null;
+  let agentMode: AgentMode = 'conversation';
+  let lastAnalyzedUserText = '';
+  let isStoryGenerationRunning = false;
   let isSessionStarting = false;
   let isSessionReady = false;
   const pendingInputs: Array<
     Extract<ClientToServerMessage, { type: 'input_audio' | 'input_image' | 'input_text' }>
   > = [];
+
+  const processRequirementText = async (text: string): Promise<void> => {
+    const normalized = text.trim().toLowerCase();
+    if (normalized && normalized !== lastAnalyzedUserText) {
+      lastAnalyzedUserText = normalized;
+      requirementProfile = analyzeRequirements(text, requirementProfile);
+      send(socket, {
+        type: 'requirement_profile_updated',
+        payload: { profile: requirementProfile },
+      });
+
+      if (shouldEnterStoryMode(requirementProfile)) {
+        if (agentMode !== 'creative_storyteller') {
+          agentMode = 'creative_storyteller';
+          send(socket, {
+            type: 'mode_changed',
+            payload: {
+              mode: agentMode,
+              reason: 'Story intent detected from user requirements.',
+            },
+          });
+        }
+
+        if (!isStoryGenerationRunning) {
+          isStoryGenerationRunning = true;
+          try {
+            const story = await generateCreativeStoryParts(
+              client,
+              requirementProfile,
+              text,
+            );
+            for (const part of story.parts) {
+              send(socket, {
+                type: 'story_part',
+                payload: part,
+              });
+            }
+            send(socket, {
+              type: 'story_generation_done',
+              payload: { summary: story.summary },
+            });
+          } catch (error) {
+            send(socket, {
+              type: 'error',
+              payload: {
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : 'Creative storyteller generation failed.',
+              },
+            });
+          } finally {
+            isStoryGenerationRunning = false;
+          }
+        }
+      } else {
+        if (agentMode !== 'conversation') {
+          agentMode = 'conversation';
+          send(socket, {
+            type: 'mode_changed',
+            payload: {
+              mode: agentMode,
+              reason: 'Continuing requirement discovery conversation.',
+            },
+          });
+        }
+        if (requirementProfile.missingInformation.length > 0) {
+          const missing = requirementProfile.missingInformation[0];
+          send(socket, {
+            type: 'clarification_question',
+            payload: {
+              question: `To better help you, what is your preferred ${missing.toLowerCase()}?`,
+            },
+          });
+        }
+      }
+    }
+  };
 
   const forwardInput = async (
     inputMessage: Extract<
@@ -95,14 +204,21 @@ wss.on('connection', (socket) => {
       return;
     }
 
-    await session.sendRealtimeInput({
-      text: inputMessage.payload.text,
-    });
+    const text = inputMessage.payload.text;
+    await session.sendRealtimeInput({ text });
+    await processRequirementText(text);
   };
 
   send(socket, {
     type: 'status',
     payload: { message: 'Connected to backend.' },
+  });
+  send(socket, {
+    type: 'mode_changed',
+    payload: {
+      mode: 'conversation',
+      reason: 'Default mode: requirement discovery.',
+    },
   });
 
   socket.on('message', async (rawData: Buffer) => {
@@ -171,6 +287,14 @@ wss.on('connection', (socket) => {
               })();
             },
             onmessage: (liveMessage: LiveServerMessage) => {
+              const userTranscript = extractUserTranscript(liveMessage);
+              if (
+                userTranscript &&
+                userTranscript.toLowerCase() !== lastAnalyzedUserText
+              ) {
+                void processRequirementText(userTranscript);
+              }
+
               const audio = extractAudio(liveMessage);
               if (audio) {
                 send(socket, {
